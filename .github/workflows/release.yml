@@ -55,11 +55,6 @@ jobs:
           RELEASE_NOTES: ${{ steps.artifact.outputs.notes }}
         run: |
           set -euo pipefail
-          # 仅删除用户指定的旧版 Release，保留源码标签。
-          old_id="$(gh release view v0.6.1 --json databaseId --jq .databaseId 2>/dev/null || true)"
-          if [[ "$old_id" = "440409611" ]]; then
-            gh release delete v0.6.1 --yes
-          fi
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             echo '该版本已发布，保留现有下载文件。'
             exit 0
