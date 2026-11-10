@@ -55,12 +55,19 @@ jobs:
           RELEASE_NOTES: ${{ steps.artifact.outputs.notes }}
         run: |
           set -euo pipefail
+          # 仅替换本次用户指定的旧发布，不删除版本标签。
+          if [[ "$RELEASE_TAG" = "v0.6.2" ]]; then
+            previous_id="$(gh release view "$RELEASE_TAG" --json databaseId --jq .databaseId 2>/dev/null || true)"
+            if [[ "$previous_id" = "440450035" ]]; then
+              gh release delete "$RELEASE_TAG" --yes
+            fi
+          fi
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             echo '该版本已发布，保留现有下载文件。'
             exit 0
           fi
           gh release create "$RELEASE_TAG" "$RELEASE_ASSET" \
             --target "$RELEASE_TARGET" \
-            --title "$RELEASE_TAG · 轻量免 Node 版" \
+            --title "${RELEASE_TAG#v}" \
             --notes-file "$RELEASE_NOTES" \
             --latest
