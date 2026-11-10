@@ -148,7 +148,7 @@ npm run build
 pwsh -NoProfile -File .\tools\build-desktop.ps1
 ```
 
-输出文件为 `release/CodexTokenStatusbar-0.6.2.exe`。默认构建免 Node 版；已有有效 `dist/` 文件时，也可直接运行 `tools/build-portable.ps1`。
+输出文件为 `release/CodexTokenStatusbar-0.6.2.exe`。默认生成无需 Node.js 运行环境的 EXE；已有有效 `dist/` 文件时，也可直接运行 `tools/build-portable.ps1`。
 
 ### 验证
 
