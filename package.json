@@ -1,0 +1,37 @@
+{
+  "name": "codex-token-statusbar",
+  "version": "0.6.1",
+  "private": true,
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/FlowingCloud16/CodexTokenStatusbar.git"
+  },
+  "type": "module",
+  "description": "Codex 客户端内部状态栏与常驻连接管理器",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "test:dotnet": "node tools/test-dotnet.mjs",
+    "test:ui": "node tools/test-ui.mjs",
+    "test:cost-ui": "node tools/test-cost-ui.mjs",
+    "test:motion-ui": "node tools/test-motion-ui.mjs",
+    "test:rate-ui": "node tools/test-rate-ui.mjs",
+    "test:layout-ui": "node tools/test-layout-ui.mjs",
+    "test:integration": "node tools/test-integration.mjs",
+    "build": "node tools/build.mjs",
+    "check:client": "node tools/verify-client.mjs",
+    "client": "node tools/client-loader.mjs",
+    "start": "node tools/statusbar-manager.mjs start",
+    "stop": "node tools/statusbar-manager.mjs stop",
+    "status": "node tools/statusbar-manager.mjs status",
+    "test:manager": "node tools/test-manager.mjs",
+    "usage": "node tools/usage-snapshot.mjs",
+    "probe": "node tools/runtime-probe.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2"
+  }
+}

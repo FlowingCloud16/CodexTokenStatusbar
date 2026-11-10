@@ -1,0 +1,91 @@
+import fs from 'node:fs';
+import http from 'node:http';
+import assert from 'node:assert/strict';
+import { launchHarnessBrowser } from './browser-harness.mjs';
+import { A, B, fixtureModule, fixtureHTML } from './client-fixture.mjs';
+
+const server = http.createServer((request, response) => {
+  const module = request.url.startsWith('/assets/');
+  response.setHeader('Content-Type', module ? 'text/javascript' : 'text/html; charset=utf-8');
+  response.end(module ? fixtureModule : fixtureHTML);
+});
+await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+const browser = await launchHarnessBrowser();
+const checks = [], errors = [];
+const usage = (input = 1000, output = 200) => ({ input_tokens: input, cached_input_tokens: input * .8, cache_write_input_tokens: 0, output_tokens: output, reasoning_output_tokens: output / 4, total_tokens: input + output });
+const turn = (extra = {}) => ({ id: B, status: 'running', coverage: 'complete', usage: usage(), startedAtMs: 1000, usageUpdatedAtMs: 11000, ...extra });
+const log = (extra = {}) => ({ threadId: A, total: usage(), currentTurn: turn(), lastTurn: null, updatedAt: new Date(11000).toISOString(), totalUpdatedAt: new Date(11000).toISOString(), ...extra });
+try {
+  const page = await browser.newPage({ viewport: { width: 1040, height: 800 }, reducedMotion: 'reduce' });
+  page.on('pageerror', error => errors.push(error.message));
+  await page.addInitScript(() => { window.__rateNow = 11000; Date.now = () => window.__rateNow; });
+  await page.goto(`http://127.0.0.1:${server.address().port}/index.html`);
+  await page.waitForFunction(() => !!window.__fixture);
+  await page.addScriptTag({ content: fs.readFileSync(new URL('../dist/statusbar.bundle.js', import.meta.url), 'utf8') });
+  await page.waitForFunction(() => window.__codexTokenStatusbarRuntime?.inspect().identity.status === 'resolved');
+  const host = page.locator('#codex-token-statusbar');
+  const speed = host.locator('[data-value="speed"]');
+  const setLog = snapshot => page.evaluate(({ id, snapshot }) => window.__codexTokenStatusbarRuntime.setLogSnapshot({ status: 'resolved', hostId: 'local', threadId: id }, snapshot), { id: A, snapshot });
+  const emit = (method, params, now) => page.evaluate(({ method, params, now }) => {
+    window.__rateNow = now;
+    window.__fixture.emit({ type: 'mcp-notification', hostId: 'local', method, params });
+    window.__codexTokenStatusbarRuntime.inspect();
+  }, { method, params: { threadId: A, ...params }, now });
+  const update = (output, now) => emit('thread/tokenUsage/updated', { turnId: B, tokenUsage: { total: { inputTokens: output === 200 ? 1000 : 2000, cachedInputTokens: output === 200 ? 800 : 1600, cacheWriteInputTokens: 0, outputTokens: output, reasoningOutputTokens: output / 4, totalTokens: (output === 200 ? 1000 : 2000) + output }, last: { inputTokens: 1000, cachedInputTokens: 800, cacheWriteInputTokens: 0, outputTokens: output, reasoningOutputTokens: output / 4, totalTokens: 1000 + output } } }, now);
+  await setLog(log());
+  assert.equal(await speed.textContent(), '20.0 t/s');
+  await update(200, 11005);
+  assert.equal(await speed.textContent(), '20.0 t/s');
+  await page.waitForTimeout(550);
+  assert.equal(await speed.textContent(), '20.0 t/s');
+  checks.push('真实整包中，晚 5ms 的不完整实时通知与后续轮询不再清空完整速度');
+  await update(600, 21005);
+  assert.equal(await host.locator('[data-value="total"]').textContent(), '2.6K');
+  assert.equal(await speed.textContent(), '20.0 t/s');
+  assert.match(await host.locator('[data-detail="speed"]').textContent(), /Usage sample age10\.0 s ago/);
+  checks.push('较新累计独立显示，旧完整采样保持并显示年龄，没有拼接旧时间与新 token');
+  await setLog(log({ total: usage(2000, 600), currentTurn: turn({ usage: usage(2000, 600), usageUpdatedAtMs: 21000 }), updatedAt: new Date(21000).toISOString(), totalUpdatedAt: new Date(21000).toISOString() }));
+  assert.equal(await speed.textContent(), '30.0 t/s');
+  checks.push('正式日志追上时成套更新为新采样速度');
+  await emit('turn/completed', { turn: { id: B } }, 31000);
+  assert.equal(await speed.textContent(), '30.0 t/s');
+  await setLog(log({ total: usage(3000, 1200), currentTurn: null, lastTurn: turn({ usage: usage(3000, 1200), usageUpdatedAtMs: 30000, status: 'completed', completedAtMs: 31000, durationMs: 30000 }), updatedAt: new Date(31005).toISOString(), totalUpdatedAt: new Date(30000).toISOString() }));
+  assert.equal(await speed.textContent(), '40.0 t/s');
+  assert.equal(await host.locator('[data-label="speed"]').textContent(), 'Turn avg ');
+  checks.push('提前完成通知保留采样，正式最终计数到达后显示固定整轮均速');
+  await emit('turn/started', { turn: { id: 'next-turn' } }, 32000);
+  assert.equal(await speed.textContent(), 'Waiting…');
+  assert.equal(await host.locator('[data-value="total"]').textContent(), '4.2K');
+  assert.match(await host.locator('button[data-action="toggle"]').getAttribute('title'), /Compaction/);
+  checks.push('新轮次在首采样前显示等待，开始通知不会使累计回退或冒用上一轮速度');
+  await page.evaluate(() => { document.documentElement.lang = 'zh-CN'; });
+  await page.waitForFunction(() => window.__codexTokenStatusbar.inspect().language === 'zh');
+  assert.equal(await speed.textContent(), '等待采样');
+  assert.match(await host.locator('[data-detail="note"]').textContent(), /压缩对话/);
+  await page.evaluate(() => { document.documentElement.lang = 'ja-JP'; });
+  await page.waitForFunction(() => window.__codexTokenStatusbar.inspect().language === 'en');
+  assert.equal(await speed.textContent(), 'Waiting…');
+  checks.push('等待提示、说明和悬停跟随 Codex 中文，其他语言使用英文');
+  let layouts = 0;
+  for (const width of [320, 430, 736, 1040]) for (const language of ['zh-CN', 'en-US']) {
+    await page.setViewportSize({ width, height: 800 });
+    await page.evaluate(language => { document.documentElement.lang = language; }, language);
+    await page.waitForTimeout(40);
+    const geometry = await page.evaluate(() => {
+      const root = document.getElementById('codex-token-statusbar').shadowRoot;
+      const rects = [...root.querySelectorAll('[data-metric]')].map(item => item.getBoundingClientRect()).filter(rect => rect.width > 0);
+      return { overflow: document.documentElement.scrollWidth > innerWidth, overlap: rects.some((rect, i) => i > 0 && rect.left < rects[i - 1].right - 1) };
+    });
+    assert.deepEqual(geometry, { overflow: false, overlap: false }); layouts++;
+  }
+  checks.push('8 个宽度和语言组合中的等待提示没有横向溢出或指标覆盖');
+  await page.evaluate(id => window.__fixture.switchCore(id, 'remote'), B);
+  await page.waitForFunction(() => window.__codexTokenStatusbarRuntime.inspect().identity.hostId === 'remote');
+  assert.equal(await speed.textContent(), '--');
+  assert.equal(await host.locator('[data-value="total"]').textContent(), '--');
+  checks.push('切换主机和对话立即清除上一轮速度与等待状态');
+  assert.deepEqual(errors, []);
+  const result = { passed: checks.length, layouts, checks, errors, scope: 'complete-bundle-rate-merge-and-waiting-sample-ui' };
+  fs.writeFileSync(new URL('../reports/rate-ui-checks.json', import.meta.url), JSON.stringify(result, null, 2));
+  console.log(JSON.stringify(result, null, 2));
+} finally { await browser.close(); await new Promise(resolve => server.close(resolve)); }

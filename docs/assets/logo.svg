@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96" role="img" aria-label="Codex Token Statusbar">
+  <rect x="2" y="2" width="92" height="92" rx="25" fill="#222222"/>
+  <rect x="2.5" y="2.5" width="91" height="91" rx="24.5" fill="none" stroke="#ffffff" stroke-opacity=".12"/>
+  <g transform="translate(24 24) scale(2)" fill="none" stroke="#f4f4f4" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.9 5.96A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.9-5.96A1 1 0 0 0 11 14z"/>
+  </g>
+</svg>

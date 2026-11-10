@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "appVersion": "26.1103.32239",
+  "packageVersion": "26.1103.4239.0",
+  "entry": "/assets/348410.792d1c9584.js",
+  "asarSha256": "fb47d6491dc3006b708cb1e14de479b882bf50f88b7daa81818f154c253266aa",
+  "defaultAsarPath": "C:/Program Files/WindowsApps/OpenAI.Codex_26.1103.4239.0_x64__2p2nqsd0c76g0/app/resources/app.asar",
+  "members": [
+    {
+      "path": "package.json",
+      "sha256": "b093e6a34b77da9e5fa53d5924415f5611a28367d2ff297bb3d2ce2141688c00"
+    },
+    {
+      "path": ".vite/build/preload.js",
+      "sha256": "29c60ab997daa6eef349e4e3e4d4a3474468265590a9301d0718b4b2c8ca18f4"
+    },
+    {
+      "path": "webview/assets/348410.792d1c9584.js",
+      "sha256": "81365fe5fac4856612c18aeacd8bce046d5fda809ff2829075a3d83f32f4a9d5"
+    },
+    {
+      "path": "webview/assets/async/182735.bb2cb0d2af.js",
+      "sha256": "ab463aa100bbd1c6306d7b32c9de911db22d9bd03ee7a30f844e32d0069916ce"
+    }
+  ]
+}
