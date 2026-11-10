@@ -8,9 +8,9 @@
 
 轻量的 Windows Codex 内嵌状态栏，沿用客户端的字体、主题和交互。
 
-[![版本](https://img.shields.io/badge/版本-0.6.1-202020?style=flat-square)](https://github.com/FlowingCloud16/CodexTokenStatusbar/releases/tag/v0.6.1)
+[![版本](https://img.shields.io/badge/版本-0.6.2-202020?style=flat-square)](https://github.com/FlowingCloud16/CodexTokenStatusbar/releases/tag/v0.6.2)
 ![平台](https://img.shields.io/badge/平台-Windows_11_x64-0078D4?style=flat-square)
-![体积](https://img.shields.io/badge/EXE-202_KiB-16875A?style=flat-square)
+![体积](https://img.shields.io/badge/EXE-208.5_KiB-16875A?style=flat-square)
 [![许可证](https://img.shields.io/badge/许可证-MIT-6D5BD0?style=flat-square)](LICENSE)
 
 [**下载 EXE**](https://github.com/FlowingCloud16/CodexTokenStatusbar/releases/latest) · [快速开始](#快速开始) · [功能](#功能) · [开发](#开发) · [反馈问题](https://github.com/FlowingCloud16/CodexTokenStatusbar/issues)
@@ -25,13 +25,13 @@
 
 | 速度 | 缓存命中 | Token 用量 | API 估算费用 |
 | :--- | :--- | :--- | :--- |
-| 以 `t/s` 显示采样平均速度 | 查看输入中被缓存复用的比例 | 汇总当前对话的输入与输出 | 按模型与内置 API 单价折算 |
+| 以 `t/s` 显示模型输出阶段速度 | 查看输入中被缓存复用的比例 | 汇总当前对话的输入与输出 | 按模型与内置 API 单价折算 |
 
 点击状态栏即可展开详情，查看最近一轮的输入、输出、缓存和计费明细。
 
 ## 快速开始
 
-1. 从 [Releases](https://github.com/FlowingCloud16/CodexTokenStatusbar/releases/latest) 下载 `CodexTokenStatusbar-0.6.1.exe`。
+1. 从 [Releases](https://github.com/FlowingCloud16/CodexTokenStatusbar/releases/latest) 下载 `CodexTokenStatusbar-0.6.2.exe`。
 2. 正常打开 Codex，再双击下载的 EXE。
 3. 打开一个对话，状态栏会出现在输入框旁边。
 
@@ -65,7 +65,7 @@
 - **跟随客户端外观**：沿用字体与深浅主题，使用轻柔的展开和切换动画，支持减少动态效果。
 - **中文随客户端切换**：Codex 使用中文时显示中文，其他语言显示英文。
 - **本机统计**：读取本机用量记录，不需要 API Key，不上传对话内容。
-- **单文件分发**：当前 EXE 约 202 KiB，使用 Windows 自带运行库。
+- **单文件分发**：当前 EXE 约 208.5 KiB，使用 Windows 自带运行库。
 
 | 布局 | 适合场景 |
 | :--- | :--- |
@@ -77,9 +77,11 @@
 
 ### 速度与用量
 
-速度采用**采样平均值**：输出 Token 除以同一次用量采样截止的整轮耗时，包含等待、推理和工具执行时间。等待新采样时保留上次结果，完成后显示整轮平均速度。
+速度参照 [dongyue-19/codex-statusbar](https://github.com/dongyue-19/codex-statusbar) 的计算方法：**本轮官方输出 Token ÷ 推理与回复的合并输出时间**。只记录 `Reasoning`、`AgentMessage` 的输出窗口，重叠时间计算一次，工具执行不单独加入分母。
 
-客户端提供的用量是分批更新的，因此速度不会每秒都有新数值。缺少完整采样时显示 `--`，不凭空推算。
+采样结果采用 **0.35 指数平滑**，每轮重新计算。工具运行或等待新采样时保留上次速度，完成后固定该轮结果，不再切回整轮吞吐。
+
+这是基于官方计数和输出窗口的估算，包含推理输出，不是逐 Token 流的瞬时测速。缺少本轮开始记录、官方输出计数或有效输出窗口时显示等待，不用整轮耗时补算。算法来源与许可见 [第三方说明](THIRD_PARTY_NOTICES.md)。
 
 ```text
 对话用量 = 累计输入 Token + 累计输出 Token
@@ -146,7 +148,7 @@ npm run build
 pwsh -NoProfile -File .\tools\build-desktop.ps1
 ```
 
-输出文件为 `release/CodexTokenStatusbar-0.6.1.exe`。默认构建免 Node 版；已有有效 `dist/` 文件时，也可直接运行 `tools/build-portable.ps1`。
+输出文件为 `release/CodexTokenStatusbar-0.6.2.exe`。默认构建免 Node 版；已有有效 `dist/` 文件时，也可直接运行 `tools/build-portable.ps1`。
 
 ### 验证
 
@@ -186,7 +188,7 @@ pwsh -NoProfile -File .\tools\clean-project.ps1
 
 **为什么费用和我的订阅不一样？** 这里计算的是相应用量按 API 单价折算的金额。订阅配额和实际账单有各自的规则。
 
-**为什么速度暂时是 `--`？** 当前还没有完整采样。新对话、压缩上下文或历史记录不完整时都可能出现；收到有效采样后会更新。
+**为什么速度暂时是 `--`？** 当前还没有完整的模型输出计时和官方计数。新对话、压缩上下文或历史记录不完整时都可能出现；收到有效采样后会更新。
 
 **客户端升级后连不上怎么办？** 先在主窗口点击“重新连接”。如果底层接口发生变化，请提交客户端版本、状态栏版本和错误信息。
 

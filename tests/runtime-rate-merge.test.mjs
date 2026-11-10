@@ -30,7 +30,8 @@ test('中途接入的实时通知晚 5ms 也不能清空完整日志的速度与
   assert.equal(result.turnRate.value, 20);
   assert.equal(result.currentTurn.startedAtMs, 1000);
   assert.equal(result.currentTurn.coverage, 'complete');
-  assert.equal(result.ratePending, false);
+  assert.equal(result.ratePending, true);
+  assert.equal(result.speed, null);
 });
 
 test('实时累计领先时保持同一轮完整采样，日志追上后成套更新输出与采样时间', () => {

@@ -30,34 +30,36 @@ try {
   checks.push('通知经适配器、计算层到英文状态栏');
   await page.evaluate(({ id }) => {
     const now = Date.now();
-    const turn = { id: 'rate-fixture', coverage: 'complete', usage: { input_tokens: 100, output_tokens: 200, total_tokens: 300 }, startedAtMs: now - 11000, usageUpdatedAtMs: now - 1000 };
+    const turn = { id: 'rate-fixture', coverage: 'complete', usage: { input_tokens: 100, output_tokens: 200, total_tokens: 300 }, startedAtMs: now - 11000, usageUpdatedAtMs: now - 1000,
+      generationSpeed: { value: 100, durationMs: 2000, outputTokens: 200, sampledAtMs: now - 1000, estimated: true, turnId: 'rate-fixture' } };
     const snapshot = { threadId: id, total: turn.usage, currentTurn: turn, updatedAt: new Date(now + 1).toISOString() };
     if (!window.__codexTokenStatusbarRuntime.setLogSnapshot({ status: 'resolved', threadId: id, hostId: 'local' }, snapshot)) throw Error('采样快照未接受');
   }, { id: A });
   const beforeSamplingWait = await page.locator('#codex-token-statusbar [data-detail="turn"]').textContent();
-  assert.equal(await page.locator('#codex-token-statusbar [data-value="speed"]').textContent(), '20.0 t/s');
-  // 让真实轮询经过两个周期，验证耗时仍更新而采样平均值不会随轮询降低。
+  assert.equal(await page.locator('#codex-token-statusbar [data-value="speed"]').textContent(), '100.0 t/s');
+  // 让真实轮询经过两个周期，验证耗时仍更新而生成速度不会随轮询降低。
   await new Promise(resolve => setTimeout(resolve, 1200));
-  assert.equal(await page.locator('#codex-token-statusbar [data-value="speed"]').textContent(), '20.0 t/s');
+  assert.equal(await page.locator('#codex-token-statusbar [data-value="speed"]').textContent(), '100.0 t/s');
   assert.notEqual(await page.locator('#codex-token-statusbar [data-detail="turn"]').textContent(), beforeSamplingWait);
   assert.match(await page.locator('#codex-token-statusbar [data-detail="speed"]').textContent(), /Usage sample age/);
   await page.evaluate(({ id }) => {
     window.__codexTokenStatusbarRuntime.setLogSnapshot({ status: 'resolved', threadId: id, hostId: 'local' }, {
       threadId: id, total: { total_tokens: 300 }, currentTurn: null,
-      lastTurn: { id: 'rate-fixture', coverage: 'complete', usage: { output_tokens: 200 }, durationMs: 15000 },
+      lastTurn: { id: 'rate-fixture', coverage: 'complete', usage: { output_tokens: 200 }, durationMs: 15000,
+        generationSpeed: { value: 100, durationMs: 2000, outputTokens: 200, sampledAtMs: Date.now() - 1000, estimated: true, turnId: 'rate-fixture' } },
       updatedAt: new Date().toISOString(),
     });
   }, { id: A });
-  assert.equal(await page.locator('#codex-token-statusbar [data-label="speed"]').textContent(), 'Turn avg ');
-  assert.equal(await page.locator('#codex-token-statusbar [data-value="speed"]').textContent(), '13.3 t/s');
-  checks.push('整包真实轮询中采样平均值保持、经过时间继续更新，完成后采用正式整轮耗时');
+  assert.equal(await page.locator('#codex-token-statusbar [data-label="speed"]').textContent(), 'Speed ');
+  assert.equal(await page.locator('#codex-token-statusbar [data-value="speed"]').textContent(), '100.0 t/s');
+  checks.push('整包真实轮询中生成速度保持、经过时间继续更新，完成后不切回整轮吞吐');
   await page.evaluate(() => { document.documentElement.lang = 'zh-CN'; });
   await page.waitForFunction(() => window.__codexTokenStatusbar.inspect().language === 'zh');
   assert.equal(await page.locator('#codex-token-statusbar [data-heading="scope"]').textContent(), '当前对话');
-  assert.match(await page.locator('#codex-token-statusbar [data-detail="note"]').textContent(), /最终整轮耗时/);
+  assert.match(await page.locator('#codex-token-statusbar [data-detail="note"]').textContent(), /排除等待和工具耗时/);
   await page.evaluate(() => { document.documentElement.lang = 'ja-JP'; });
   await page.waitForFunction(() => window.__codexTokenStatusbar.inspect().language === 'en');
-  assert.match(await page.locator('#codex-token-statusbar [data-detail="note"]').textContent(), /final turn duration/);
+  assert.match(await page.locator('#codex-token-statusbar [data-detail="note"]').textContent(), /Waiting and tool execution are excluded/);
   checks.push('完整构建产物随客户端语言切换，模型提供的统计说明同步翻译，非中文回退英文');
   const accumulator = createMetricsAccumulator({ threadId: A });
   accumulator.consume({ type: 'session_meta', payload: { id: A, model_provider: 'openai' } });

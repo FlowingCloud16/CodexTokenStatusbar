@@ -37,7 +37,7 @@ test('缺少完整轮次统计或有效计时时不显示速率，真实零输�
   assert.equal(estimateTurnRate({ currentTurn: { ...turn, usage: { output_tokens: null } } }, 11000), null);
   assert.equal(estimateTurnRate({ currentTurn: { ...turn, usage: { output_tokens: 0 } } }, 11000).value, 0);
 });
-test('运行时模型提供估算平均速率，生成速度保持未知，切换身份清除旧速率', () => {
+test('整轮吞吐可作诊断，缺少模型窗口时主速度等待采样', () => {
   const id = '01a1ba45-994e-75f3-ac70-6be9853c67b9';
   const identity = { status: 'resolved', threadId: id, hostId: 'local' };
   let now = 11000;
@@ -46,7 +46,8 @@ test('运行时模型提供估算平均速率，生成速度保持未知，切�
   model.setLogSnapshot(identity, { threadId: id, total: { total_tokens: 300 }, currentTurn: turn });
   assert.equal(model.snapshot().turnRate.value, 20);
   assert.equal(model.snapshot().speed, null);
-  assert.match(model.snapshot().scopeNote, /including waiting and tools/);
+  assert.match(model.snapshot().scopeNote, /complete model-output timing/);
+  assert.equal(model.snapshot().ratePending, true);
   now = 71000;
   assert.equal(model.snapshot().turnRate.value, 20);
   assert.equal(model.snapshot().turnRate.sampleAgeMs, 60000);

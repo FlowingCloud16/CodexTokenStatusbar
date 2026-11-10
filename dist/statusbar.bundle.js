@@ -15,8 +15,13 @@
         bridge: "Bridge ",
         reconnecting: "Reconnecting\u2026",
         waitingSample: "Waiting\u2026",
-        waitingSampleTitle: "Waiting for a complete usage sample and matching timing for this turn. Compaction or the first response can delay this sample.",
-        "note.waitingSample": "Waiting for a complete usage sample and matching timing for this turn. Compaction or the first response can delay this sample.",
+        waitingSampleTitle: "Waiting for official output tokens and complete model-output timing for this turn.",
+        "note.waitingSample": "Waiting for official output tokens and complete model-output timing for this turn.",
+        modelOutputTime: "Model output time",
+        generationTitle: "Estimated generation speed: output tokens including reasoning / merged model-output time. Waiting and tool time are excluded; samples are smoothed.",
+        heldTitle: " Holding the last measurement until the next sample.",
+        "note.generation": "Official output tokens divided by merged Reasoning and AgentMessage time, with smoothing. Waiting and tool execution are excluded.",
+        "note.generationHeld": "Holding the last measured generation speed during tool execution or while waiting for the next sample.",
         statistics: "Token statistics",
         usageDetails: "Token usage details",
         settingsTab: "Settings",
@@ -83,8 +88,13 @@
         bridge: "\u8FDE\u63A5 ",
         reconnecting: "\u6B63\u5728\u91CD\u8FDE\u2026",
         waitingSample: "\u7B49\u5F85\u91C7\u6837",
-        waitingSampleTitle: "\u6B63\u5728\u7B49\u5F85\u672C\u8F6E\u5B8C\u6574\u7528\u91CF\u53CA\u5339\u914D\u7684\u91C7\u6837\u65F6\u95F4\uFF0C\u538B\u7F29\u5BF9\u8BDD\u6216\u9996\u6B21\u54CD\u5E94\u53EF\u80FD\u4F7F\u91C7\u6837\u5EF6\u540E\u3002",
-        "note.waitingSample": "\u6B63\u5728\u7B49\u5F85\u672C\u8F6E\u5B8C\u6574\u7528\u91CF\u53CA\u5339\u914D\u7684\u91C7\u6837\u65F6\u95F4\uFF0C\u538B\u7F29\u5BF9\u8BDD\u6216\u9996\u6B21\u54CD\u5E94\u53EF\u80FD\u4F7F\u91C7\u6837\u5EF6\u540E\u3002",
+        waitingSampleTitle: "\u6B63\u5728\u7B49\u5F85\u672C\u8F6E\u5B98\u65B9\u8F93\u51FA\u8BA1\u6570\u548C\u5B8C\u6574\u7684\u6A21\u578B\u8F93\u51FA\u8BA1\u65F6\u3002",
+        "note.waitingSample": "\u6B63\u5728\u7B49\u5F85\u672C\u8F6E\u5B98\u65B9\u8F93\u51FA\u8BA1\u6570\u548C\u5B8C\u6574\u7684\u6A21\u578B\u8F93\u51FA\u8BA1\u65F6\u3002",
+        modelOutputTime: "\u6A21\u578B\u8F93\u51FA\u8017\u65F6",
+        generationTitle: "\u4F30\u7B97\u751F\u6210\u901F\u5EA6\uFF1A\u5B98\u65B9\u8F93\u51FA token\uFF08\u542B\u63A8\u7406\uFF09\u9664\u4EE5\u5408\u5E76\u540E\u7684\u6A21\u578B\u8F93\u51FA\u65F6\u95F4\uFF0C\u6392\u9664\u7B49\u5F85\u548C\u5DE5\u5177\u8017\u65F6\uFF0C\u5E76\u5E73\u6ED1\u91C7\u6837\u7ED3\u679C\u3002",
+        heldTitle: "\u6B63\u5728\u4FDD\u7559\u4E0A\u6B21\u6D4B\u91CF\u503C\uFF0C\u7B49\u5F85\u65B0\u91C7\u6837\u3002",
+        "note.generation": "\u5B98\u65B9\u8F93\u51FA token \u9664\u4EE5\u63A8\u7406\u4E0E\u56DE\u590D\u7684\u5408\u5E76\u8F93\u51FA\u65F6\u95F4\uFF0C\u5E76\u5E73\u6ED1\u7ED3\u679C\uFF1B\u6392\u9664\u7B49\u5F85\u548C\u5DE5\u5177\u8017\u65F6\u3002",
+        "note.generationHeld": "\u5DE5\u5177\u8FD0\u884C\u6216\u7B49\u5F85\u65B0\u91C7\u6837\u671F\u95F4\uFF0C\u4FDD\u7559\u4E0A\u6B21\u6D4B\u5F97\u7684\u751F\u6210\u901F\u5EA6\u3002",
         statistics: "Token \u7EDF\u8BA1",
         usageDetails: "Token \u7528\u91CF\u8BE6\u60C5",
         settingsTab: "\u8BBE\u7F6E",
@@ -620,18 +630,17 @@
     function render() {
       const speed = snapshot.speed;
       const turnRate = snapshot.turnRate;
-      const displayedRate = speed ?? turnRate;
+      const displayedRate = speed;
       const ratePending = snapshot.ratePending === true && displayedRate?.value == null;
-      const sampled = turnRate?.status === "sampled";
-      const sampleAge = Number.isFinite(turnRate?.sampleAgeMs) ? text("ago", { value: (turnRate.sampleAgeMs / 1e3).toFixed(1) }) : "--";
+      const sampleAge = Number.isFinite(speed?.sampleAgeMs) ? text("ago", { value: (speed.sampleAgeMs / 1e3).toFixed(1) }) : "--";
       if (host.lang !== language) host.lang = language;
       panel.setAttribute("aria-label", text("usageDetails"));
       shadow.querySelector('[data-heading="scope"]').textContent = snapshot.scopeKey ? text(snapshot.scopeKey) : snapshot.scopeLabel ?? text("scope.current");
       shadow.querySelector('[data-label="tokens"]').textContent = text("tokens");
       shadow.querySelector('[data-label="cache"]').textContent = text("cache");
-      shadow.querySelector('[data-label="speed"]').textContent = text(speed?.value != null || turnRate?.value == null ? "speed" : sampled ? "sampled" : "completed");
+      shadow.querySelector('[data-label="speed"]').textContent = text("speed");
       shadow.querySelector('[data-value="speed"]').textContent = displayedRate?.value != null ? `${displayedRate.value.toFixed(1)} t/s` : ratePending ? text("waitingSample") : "--";
-      button.title = !speed && turnRate ? text(sampled ? "sampledTitle" : "completedTitle", { age: sampleAge }) : ratePending ? text("waitingSampleTitle") : text("statistics");
+      button.title = speed?.value != null ? text("generationTitle") + (speed.held ? text("heldTitle") : "") : ratePending ? text("waitingSampleTitle") : text("statistics");
       if (snapshot.bridgeDisconnected) {
         shadow.querySelector('[data-label="speed"]').textContent = text("bridge");
         shadow.querySelector('[data-value="speed"]').textContent = text("reconnecting");
@@ -640,9 +649,9 @@
       shadow.querySelector('[data-value="total"]').textContent = compact(snapshot.total?.total_tokens);
       shadow.querySelector('[data-value="cache"]').textContent = Number.isFinite(snapshot.cacheHitRate) ? `${snapshot.cacheHitRate.toFixed(1)}%` : "--";
       button.setAttribute("aria-label", text("accessible", {
-        rate: text(displayedRate?.estimated ? sampled ? "rateSampled" : "rateCompleted" : "rateGeneration"),
+        rate: text("rateGeneration"),
         value: shadow.querySelector('[data-value="speed"]').textContent,
-        updated: sampled ? text("updated", { age: sampleAge }) : "",
+        updated: Number.isFinite(speed?.sampleAgeMs) ? text("updated", { age: sampleAge }) : "",
         total: number(snapshot.total?.total_tokens),
         cache: shadow.querySelector('[data-value="cache"]').textContent
       }));
@@ -662,11 +671,11 @@
       ]);
       detail('[data-detail="speed"]', [
         [text("generationSpeed"), speed?.value != null ? `${speed.value.toFixed(1)} t/s` : "--"],
-        [text(sampled || ratePending ? "sampledAverage" : "completedAverage"), turnRate?.value != null ? `\u2248 ${turnRate.value.toFixed(1)} t/s` : ratePending ? text("waitingSample") : "--"],
-        ...sampled ? [[text("sampleAge"), sampleAge]] : [],
+        [text("modelOutputTime"), Number.isFinite(speed?.durationMs) ? text("seconds", { value: (speed.durationMs / 1e3).toFixed(2) }) : "--"],
+        ...Number.isFinite(speed?.sampleAgeMs) ? [[text("sampleAge"), sampleAge]] : [],
         [text("lastThroughput"), snapshot.endToEndSpeed?.value != null ? `${snapshot.endToEndSpeed.value.toFixed(1)} t/s` : "--"]
       ]);
-      const fallbackNoteKey = turnRate && !speed ? sampled ? "note.sampled" : "note.completed" : snapshot.speed?.estimated ? "note.estimatedSpeed" : "note.default";
+      const fallbackNoteKey = speed ? speed.held ? "note.generationHeld" : "note.generation" : ratePending ? "note.waitingSample" : "note.usageWaitingTiming";
       shadow.querySelector('[data-detail="note"]').textContent = snapshot.noteKey ? text(snapshot.noteKey, snapshot.noteParams) : snapshot.scopeNote ?? text(fallbackNoteKey);
       syncLayout();
       if (!panel.hidden) {
@@ -894,7 +903,7 @@
     });
     observer.observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ["class", "style", "hidden", "inert", "aria-hidden", "data-state", "data-active", "data-theme", "lang"] });
     window[KEY] = {
-      version: "0.6.1",
+      version: "0.6.2",
       setSettings(value, acknowledgedRequest = null) {
         if (layoutRequest && acknowledgedRequest !== layoutRequest.id) return false;
         if (!["adaptive", "separate", "icon"].includes(value?.layout)) return false;
@@ -2884,6 +2893,91 @@
     return { consume, snapshot };
   }
 
+  // src/generation-rate.mjs
+  var GENERATION_ALPHA = 0.35;
+  var isCount = (value) => Number.isSafeInteger(value) && value >= 0;
+  function createGenerationRate(turnId) {
+    let complete = false, intervals = [], output = 0, durationMs = 0;
+    let value = null, rawValue = null, lastOutput = -1, lastDuration = -1;
+    let sampledAtMs = null, sampleCount = 0, held = false;
+    function begin() {
+      if (complete) return;
+      complete = true;
+      intervals = [];
+      output = 0;
+      durationMs = 0;
+      value = rawValue = sampledAtMs = null;
+      lastOutput = lastDuration = -1;
+      sampleCount = 0;
+      held = false;
+    }
+    function invalidate() {
+      complete = false;
+      intervals = [];
+      output = durationMs = 0;
+      value = rawValue = sampledAtMs = null;
+      lastOutput = lastDuration = -1;
+      sampleCount = 0;
+      held = false;
+    }
+    function refresh(at2) {
+      if (!complete || output <= 0 || durationMs <= 0 || output === lastOutput && durationMs === lastDuration) return;
+      const sample = 1e3 * output / durationMs;
+      if (!Number.isFinite(sample) || sample <= 0 || sample > 1e5) return;
+      lastOutput = output;
+      lastDuration = durationMs;
+      rawValue = sample;
+      value = value == null ? sample : GENERATION_ALPHA * sample + (1 - GENERATION_ALPHA) * value;
+      sampledAtMs = isCount(at2) ? at2 : intervals.at(-1)?.[1] ?? null;
+      sampleCount++;
+      held = false;
+    }
+    function observeItem(type, start, end, at2) {
+      if (!["reasoning", "agentmessage"].includes(String(type).toLowerCase())) {
+        held = true;
+        return;
+      }
+      if (!isCount(start) || !isCount(end) || end <= start || end - start > 6e5) return;
+      const sorted = [...intervals, [start, end]].sort((a, b) => a[0] - b[0]);
+      intervals = [];
+      for (const window2 of sorted) {
+        const previous = intervals.at(-1);
+        if (previous && window2[0] <= previous[1]) previous[1] = Math.max(previous[1], window2[1]);
+        else intervals.push([...window2]);
+      }
+      durationMs = intervals.reduce((sum, [a, b]) => sum + b - a, 0);
+      refresh(at2);
+    }
+    function update(next, at2) {
+      if (isCount(next)) {
+        output = next;
+        refresh(at2);
+      }
+    }
+    function snapshot(status = "running") {
+      if (value == null) return null;
+      return {
+        value,
+        rawValue,
+        unit: "t/s",
+        estimated: true,
+        live: false,
+        turnId,
+        outputTokens: lastOutput,
+        durationMs: lastDuration,
+        sampledAtMs,
+        sampleCount,
+        smoothingAlpha: GENERATION_ALPHA,
+        itemsComplete: complete,
+        status: status === "running" ? "sampled" : status === "aborted" ? "aborted" : "completed",
+        held: status === "running" && held,
+        basis: "official-output-including-reasoning/union-model-output-windows",
+        source: "codex-statusbar-model-output-window"
+      };
+    }
+    return { begin, invalidate, observeItem, update, refresh, snapshot };
+  }
+
   // src/metrics.mjs
   var USAGE_FIELDS = [
     "input_tokens",
@@ -2950,7 +3044,8 @@
       durationMs: turn.durationMs,
       timeToFirstTokenMs: turn.timeToFirstTokenMs,
       usageUpdatedAtMs: turn.usageUpdatedAtMs,
-      coverage: turn.officialUsage || turn.deltaUsage ? "complete" : "observed-responses-only"
+      coverage: turn.officialUsage || turn.deltaUsage ? "complete" : "observed-responses-only",
+      generationSpeed: turn.generation.snapshot(turn.status)
     };
   }
   function responseSpeed(response, timing) {
@@ -2993,7 +3088,10 @@
         completedAtMs: null,
         durationMs: null,
         timeToFirstTokenMs: null,
-        usageUpdatedAtMs: null
+        usageUpdatedAtMs: null,
+        generation: createGenerationRate(id),
+        generationBaselineOutput: null,
+        generationOfficialOutput: 0
       });
       return turns.get(id);
     }
@@ -3030,21 +3128,32 @@
         if (turn2.startedAtMs == null) {
           turn2.startedAtMs = toTime(p.started_at, "seconds") ?? toTime(record.timestamp);
           turn2.baseline = clone(total ?? (sawSessionMeta ? emptyUsage() : null));
+          turn2.generationBaselineOutput = validNumber(total?.output_tokens) ? total.output_tokens : null;
+          turn2.generation.begin();
         }
         updatedAt = record.timestamp ?? updatedAt;
         return;
       }
-      if (record.type === "event_msg" && p.type === "task_complete") {
+      if (record.type === "event_msg" && ["task_complete", "turn_aborted"].includes(p.type)) {
         const id2 = p.turn_id ?? p.root_turn_id ?? currentTurnId;
         const turn2 = getTurn(id2);
         if (!turn2) return;
-        turn2.status = "completed";
+        turn2.status = p.type === "turn_aborted" ? "aborted" : "completed";
         turn2.completedAtMs = toTime(p.completed_at, "seconds") ?? toTime(record.timestamp);
         turn2.startedAtMs ??= toTime(p.started_at, "seconds");
         turn2.durationMs = validNumber(p.duration_ms) ? p.duration_ms : null;
         turn2.timeToFirstTokenMs = validNumber(p.time_to_first_token_ms) ? p.time_to_first_token_ms : null;
+        turn2.generation.refresh(toTime(record.timestamp));
         lastTurnId = id2;
         if (currentTurnId === id2) currentTurnId = null;
+        updatedAt = record.timestamp ?? updatedAt;
+        return;
+      }
+      if (record.type === "event_msg" && p.type === "item_completed") {
+        const id2 = p.turn_id ?? currentTurnId;
+        const turn2 = getTurn(id2);
+        if (!turn2) return;
+        turn2.generation.observeItem(p.item?.type, p.started_at_ms, p.completed_at_ms, toTime(record.timestamp));
         updatedAt = record.timestamp ?? updatedAt;
         return;
       }
@@ -3066,8 +3175,14 @@
         else diagnostics.ignoredLegacyUsageEvents++;
         return;
       }
-      if (isModern && nextTotal) hasModernUsage = true;
+      if (isModern && nextTotal) {
+        if (!hasModernUsage) for (const item of turns.values()) item.generationBaselineOutput = null;
+        hasModernUsage = true;
+      }
       const previousTotal = total;
+      if (nextTotal && previousTotal && ["output_tokens"].some((key) => validNumber(nextTotal[key]) && validNumber(previousTotal[key]) && nextTotal[key] < previousTotal[key])) {
+        for (const item of turns.values()) item.generation.invalidate();
+      }
       if (nextTotal) {
         total = nextTotal;
         if (usageKey(nextTotal) !== usageKey(previousTotal)) totalUpdatedAt = record.timestamp ?? null;
@@ -3075,10 +3190,14 @@
       const id = p.turn_id ?? currentTurnId;
       const turn = getTurn(id);
       const previousTurnUsage = turn ? usageKey(turnUsage(turn)) : null;
-      if (id && currentTurnId == null && turn?.status !== "completed") currentTurnId = id;
+      if (id && currentTurnId == null && turn?.status === "running") currentTurnId = id;
       if (turn) {
         turn.deltaUsage = subtractUsage(total, turn.baseline);
         const officialTurn = isModern ? normalizeUsage(p.turn_token_usage) : null;
+        if (turn.generationBaselineOutput == null && validNumber(nextTotal?.output_tokens)) turn.generationBaselineOutput = nextTotal.output_tokens;
+        if (officialTurn && nextTotal && usageKey(officialTurn) !== usageKey(nextTotal)) {
+          turn.generationOfficialOutput = Math.max(turn.generationOfficialOutput, officialTurn.output_tokens ?? 0);
+        }
         if (!isModern && usageKey(nextTotal) !== usageKey(previousTotal)) turn.officialUsage = null;
         if (officialTurn) {
           const looksLikeThreadCopy = usageKey(officialTurn) === usageKey(nextTotal) && turn.baseline?.total_tokens > 0;
@@ -3104,6 +3223,12 @@
         }
       }
       if (turn && usageKey(turnUsage(turn)) !== previousTurnUsage) turn.usageUpdatedAtMs = toTime(record.timestamp);
+      if (turn) {
+        const responseOutput = [...turn.responses.values()].reduce((sum, response) => sum + (response.usage.output_tokens ?? 0), 0);
+        const outputDelta = validNumber(total?.output_tokens) && turn.generationBaselineOutput != null ? Math.max(0, total.output_tokens - turn.generationBaselineOutput) : 0;
+        const exactOutput = Math.max(responseOutput, outputDelta);
+        turn.generation.update(exactOutput > 0 ? exactOutput : turn.generationOfficialOutput, toTime(record.timestamp));
+      }
       if (nextTotal || responseUsage) updatedAt = record.timestamp ?? updatedAt;
       if (!nextTotal && !responseUsage) total = previousTotal;
     }
@@ -3184,7 +3309,7 @@
     const countAt = (view) => at(Object.hasOwn(view.value, "totalUpdatedAt") ? view.value.totalUpdatedAt : view.value.updatedAt);
     const countViews = views.filter((view) => view.value.total).sort((a, b) => countAt(b) - countAt(a) || (a.source === "log" ? -1 : 1));
     const counts = countViews[0]?.value;
-    const reset = countViews.length > 1 && ["input_tokens", "output_tokens"].some((field) => Number.isSafeInteger(counts.total[field]) && Number.isSafeInteger(countViews[1].value.total[field]) && counts.total[field] < countViews[1].value.total[field]);
+    const reset = countViews.length > 1 && ["output_tokens"].some((field) => Number.isSafeInteger(counts.total[field]) && Number.isSafeInteger(countViews[1].value.total[field]) && counts.total[field] < countViews[1].value.total[field]);
     const turnViews = reset ? countViews.slice(0, 1) : views;
     const entries = turnViews.flatMap((view) => ["currentTurn", "lastTurn"].flatMap((key) => view.value[key]?.id ? [{
       ...view,
@@ -3200,7 +3325,7 @@
     function choose(id) {
       const candidates = entries.filter((entry) => entry.turn.id === id);
       const completed = candidates.filter((entry) => entry.completed);
-      const final = completed.filter((entry) => estimateTurnRate({ lastTurn: entry.turn }, nowMs));
+      const final = completed.filter((entry) => entry.turn.generationSpeed?.value > 0 || estimateTurnRate({ lastTurn: entry.turn }, nowMs));
       if (final.length) return { entry: final.find((entry) => entry.source === "log") ?? final[0], completed: true };
       const sampled = candidates.filter((entry) => estimateTurnRate({ currentTurn: entry.turn }, nowMs)).sort((a, b) => at(b.turn.usageUpdatedAtMs) - at(a.turn.usageUpdatedAtMs));
       if (sampled.length) {
@@ -3219,6 +3344,12 @@
     combined.cacheHitRate = cacheHitRate(combined.total);
     combined.currentTurn = head && !head.completed ? head.entry.turn : null;
     combined.lastTurn = last ?? null;
+    const measured = entries.filter((entry) => entry.turn.id === head?.entry.turn.id && entry.turn.generationSpeed?.value > 0).sort((a, b) => at(b.turn.generationSpeed.sampledAtMs) - at(a.turn.generationSpeed.sampledAtMs) || (a.source === "log" ? -1 : 1));
+    combined.generationSpeed = measured.length ? {
+      ...measured[0].turn.generationSpeed,
+      status: head.completed ? "completed" : "sampled",
+      held: !head.completed && measured[0].turn.generationSpeed.held === true
+    } : null;
     combined.endToEndSpeed = last?.usage?.output_tokens != null && last.durationMs > 0 ? {
       value: last.usage.output_tokens / (last.durationMs / 1e3),
       unit: "t/s",
@@ -3269,6 +3400,15 @@
         state.accumulator.consume({ type: "event_msg", timestamp, payload: { type: "task_started", thread_id: p.threadId, turn_id: p.turn.id, started_at: timestamp } });
       } else if (message.method === "turn/completed" && typeof p.turn?.id === "string") {
         state.accumulator.consume({ type: "event_msg", timestamp, payload: { type: "task_complete", thread_id: p.threadId, turn_id: p.turn.id, completed_at: timestamp } });
+      } else if (message.method === "item/completed" && typeof p.turnId === "string") {
+        state.accumulator.consume({ type: "event_msg", timestamp, payload: {
+          type: "item_completed",
+          thread_id: p.threadId,
+          turn_id: p.turnId,
+          item: { type: p.item?.type },
+          started_at_ms: p.startedAtMs ?? p.started_at_ms,
+          completed_at_ms: p.completedAtMs ?? p.completed_at_ms
+        } });
       } else if (message.method === "item/agentMessage/delta" && typeof p.delta === "string") {
         state.visibleDeltaEvents++;
         state.visibleCharacters += p.delta.length;
@@ -3305,19 +3445,21 @@
         lastTurn: observedCost.lastTurn?.turnId === combined.lastTurn?.id ? reconcileCostSummary(observedCost.lastTurn, combined.lastTurn?.usage) : null
       } : null;
       const turnRate = estimateTurnRate(combined, nowMs);
-      const ratePending = combined.currentTurn != null && !turnRate;
+      const speed = combined.generationSpeed;
+      if (speed) speed.sampleAgeMs = Number.isFinite(speed.sampledAtMs) ? Math.max(0, nowMs - speed.sampledAtMs) : null;
+      const ratePending = combined.currentTurn != null && !speed;
       return {
         ...combined,
         identity: { ...active },
         threadId: active.threadId,
         hostId: active.hostId,
         scopeKey: "scope.current",
-        noteKey: turnRate ? turnRate.status === "sampled" ? "note.sampled" : "note.completed" : ratePending ? "note.waitingSample" : live.total || offline?.total ? "note.usageWaitingTiming" : "note.waitingUsage",
+        noteKey: speed ? speed.held ? "note.generationHeld" : "note.generation" : ratePending ? "note.waitingSample" : live.total || offline?.total ? "note.usageWaitingTiming" : "note.waitingUsage",
         scopeLabel: "Current conversation",
-        speed: null,
+        speed,
         turnRate,
         ratePending,
-        scopeNote: turnRate ? turnRate.status === "sampled" ? "Sample avg is estimated: official turn output tokens (including reasoning) divided by turn time up to the same usage sample, including waiting and tools. The value holds until usage changes; sample age is shown below. Completion uses the final turn duration. Generation speed is unverified." : "Turn avg is estimated: official turn output tokens (including reasoning) divided by the final turn duration, including waiting and tools. This completed average does not change with the clock. Generation speed is unverified." : ratePending ? "Waiting for a complete usage sample and matching timing for this turn. Compaction or the first response can delay this sample." : live.total || offline?.total ? "Usage follows the verified conversation identity. Generation speed is awaiting verified token timing. Runtime-only turn totals may cover observed responses only." : "Conversation identified. Waiting for an official usage update or a matching local rollout.",
+        scopeNote: speed ? "Estimated generation speed: official output tokens including reasoning / union of Reasoning and AgentMessage windows, smoothed with alpha 0.35. Waiting and tool execution are excluded. The last measurement is held until a new sample arrives." : ratePending ? "Waiting for official output tokens and complete model-output timing for this turn." : live.total || offline?.total ? "Usage follows the verified conversation identity. Generation speed is awaiting verified token timing. Runtime-only turn totals may cover observed responses only." : "Conversation identified. Waiting for an official usage update or a matching local rollout.",
         runtimeDiagnostics: { usageUpdates: state.usageUpdates, visibleDeltaEvents: state.visibleDeltaEvents, visibleCharacters: state.visibleCharacters }
       };
     }
@@ -3356,8 +3498,8 @@
   }
 
   // src/version.mjs
-  var VERSION = "0.6.1";
-  var BUILD_ID = true ? "09eb043780c7489c9f7f361655bce5a48a9d62d20eae6600e15ed20cb4924f31" : "development";
+  var VERSION = "0.6.2";
+  var BUILD_ID = true ? "0a9fd930bf7466f9134bd5a59f99633370068cf1801cb6f698d556da6a2152b4" : "development";
 
   // src/browser-entry.mjs
   (() => {
@@ -3390,6 +3532,7 @@
         cost: null,
         cacheHitRate: null,
         speed: null,
+        generationSpeed: null,
         turnRate: null,
         ratePending: false,
         currentTurn: null,

@@ -197,6 +197,51 @@ namespace CodexTokenStatusbar {
         }
     }
 
+    // 参照 dongyue-19/codex-statusbar 的 TpsTracker；许可见 desktop/licenses/codex-statusbar-MIT。
+    internal sealed class GenerationRate {
+        private readonly string turnId;
+        private bool complete, held;
+        private readonly List<long[]> intervals = new List<long[]>();
+        private long output, duration, lastOutput = -1, lastDuration = -1;
+        private double? value, rawValue, sampledAt;
+        private int samples;
+        internal GenerationRate(string id) { turnId = id; }
+        internal void Begin() { if (complete) return; Invalidate(); complete = true; }
+        internal void Invalidate() {
+            complete = held = false; intervals.Clear(); output = duration = 0;
+            lastOutput = lastDuration = -1; value = rawValue = sampledAt = null; samples = 0;
+        }
+        internal void Refresh(double? at) {
+            if (!complete || output <= 0 || duration <= 0 || (output == lastOutput && duration == lastDuration)) return;
+            double sample = 1000d * output / duration;
+            if (double.IsNaN(sample) || double.IsInfinity(sample) || sample <= 0 || sample > 100000) return;
+            lastOutput = output; lastDuration = duration; rawValue = sample;
+            value = value.HasValue ? 0.35 * sample + 0.65 * value.Value : sample;
+            sampledAt = at.HasValue && at >= 0 && at <= 9007199254740991d && Math.Truncate(at.Value) == at ? at : intervals.Count > 0 ? (double?)intervals[intervals.Count - 1][1] : null;
+            samples++; held = false;
+        }
+        internal void ObserveItem(string type, long? start, long? end, double? at) {
+            if (!string.Equals(type, "Reasoning", StringComparison.OrdinalIgnoreCase) && !string.Equals(type, "AgentMessage", StringComparison.OrdinalIgnoreCase)) { held = true; return; }
+            if (!start.HasValue || !end.HasValue || end <= start || end - start > 600000) return;
+            var sorted = intervals.Concat(new[] { new[] { start.Value, end.Value } }).OrderBy(window => window[0]).ToArray();
+            intervals.Clear();
+            foreach (var window in sorted) {
+                var previous = intervals.Count > 0 ? intervals[intervals.Count - 1] : null;
+                if (previous != null && window[0] <= previous[1]) previous[1] = Math.Max(previous[1], window[1]);
+                else intervals.Add(new[] { window[0], window[1] });
+            }
+            duration = intervals.Sum(window => window[1] - window[0]); Refresh(at);
+        }
+        internal void Update(long? next, double? at) { if (next.HasValue) { output = next.Value; Refresh(at); } }
+        internal object Snapshot(string status) {
+            if (!value.HasValue) return null;
+            return Data.Obj("value", value, "rawValue", rawValue, "unit", "t/s", "estimated", true, "live", false, "turnId", turnId,
+                "outputTokens", lastOutput, "durationMs", lastDuration, "sampledAtMs", sampledAt, "sampleCount", samples,
+                "smoothingAlpha", 0.35, "itemsComplete", complete, "status", status == "running" ? "sampled" : status == "aborted" ? "aborted" : "completed",
+                "held", status == "running" && held, "basis", "official-output-including-reasoning/union-model-output-windows", "source", "codex-statusbar-model-output-window");
+        }
+    }
+
     internal sealed class UsageAccumulator {
         internal static readonly string[] Fields = { "input_tokens", "cached_input_tokens", "cache_write_input_tokens", "output_tokens", "reasoning_output_tokens", "total_tokens" };
         private readonly CostAccumulator costs;
@@ -211,6 +256,8 @@ namespace CodexTokenStatusbar {
             internal double? Started, Completed, UsageUpdated; internal long? Duration, FirstToken;
             internal readonly Dictionary<string, object> Responses = new Dictionary<string, object>();
             internal readonly List<string> Order = new List<string>();
+            internal GenerationRate Generation;
+            internal long? GenerationBaselineOutput; internal long GenerationOfficialOutput;
         }
         internal UsageAccumulator(ApiPrices prices, string id = null) { costs = new CostAccumulator(prices); threadId = id; }
         internal static object Normalize(object value) {
@@ -229,7 +276,7 @@ namespace CodexTokenStatusbar {
             if (turn.Official != null) return turn.Official; if (turn.Delta != null) return turn.Delta; if (turn.Responses.Count == 0) return null;
             return Fields.ToDictionary(k => k, k => turn.Responses.Values.All(r => Data.Num(Data.Get(r, "usage"), k).HasValue) ? (object)turn.Responses.Values.Sum(r => Data.Num(Data.Get(r, "usage"), k).Value) : null);
         }
-        private Turn GetTurn(string id) { if (string.IsNullOrEmpty(id)) return null; if (!turns.ContainsKey(id)) turns[id] = new Turn { Id = id }; return turns[id]; }
+        private Turn GetTurn(string id) { if (string.IsNullOrEmpty(id)) return null; if (!turns.ContainsKey(id)) turns[id] = new Turn { Id = id, Generation = new GenerationRate(id) }; return turns[id]; }
         private void Increment(string name) { diagnostics[name] = (int)diagnostics[name] + 1; }
         internal void Consume(string line) { try { Consume(Data.Parse(line)); } catch (ArgumentException) { Increment("malformedLines"); } catch (InvalidOperationException) { Increment("malformedLines"); } }
         internal void Consume(object record) {
@@ -243,14 +290,20 @@ namespace CodexTokenStatusbar {
             string eventType = Data.Text(p, "type");
             if (type == "event_msg" && eventType == "task_started") {
                 currentId = Data.Text(p, "turn_id") ?? Data.Text(p, "root_turn_id"); var turn = GetTurn(currentId); if (turn == null) return;
-                if (!turn.Started.HasValue) { turn.Started = Data.Time(Data.Get(p, "started_at"), "seconds") ?? Data.Time(Data.Get(record, "timestamp")); turn.Baseline = total ?? (sawMeta ? Fields.ToDictionary(k => k, k => (object)0L) : null); }
+                if (!turn.Started.HasValue) { turn.Started = Data.Time(Data.Get(p, "started_at"), "seconds") ?? Data.Time(Data.Get(record, "timestamp")); turn.Baseline = total ?? (sawMeta ? Fields.ToDictionary(k => k, k => (object)0L) : null); turn.GenerationBaselineOutput = Data.Num(total, "output_tokens"); turn.Generation.Begin(); }
                 updatedAt = Data.Get(record, "timestamp") ?? updatedAt; return;
             }
-            if (type == "event_msg" && eventType == "task_complete") {
+            if (type == "event_msg" && (eventType == "task_complete" || eventType == "turn_aborted")) {
                 string id = Data.Text(p, "turn_id") ?? Data.Text(p, "root_turn_id") ?? currentId; var turn = GetTurn(id); if (turn == null) return;
-                turn.Status = "completed"; turn.Completed = Data.Time(Data.Get(p, "completed_at"), "seconds") ?? Data.Time(Data.Get(record, "timestamp"));
+                turn.Status = eventType == "turn_aborted" ? "aborted" : "completed"; turn.Completed = Data.Time(Data.Get(p, "completed_at"), "seconds") ?? Data.Time(Data.Get(record, "timestamp"));
                 turn.Started = turn.Started ?? Data.Time(Data.Get(p, "started_at"), "seconds"); turn.Duration = Data.Num(p, "duration_ms"); turn.FirstToken = Data.Num(p, "time_to_first_token_ms");
+                turn.Generation.Refresh(Data.Time(Data.Get(record, "timestamp")));
                 lastId = id; if (currentId == id) currentId = null; updatedAt = Data.Get(record, "timestamp") ?? updatedAt; return;
+            }
+            if (type == "event_msg" && eventType == "item_completed") {
+                var turn = GetTurn(Data.Text(p, "turn_id") ?? currentId); if (turn == null) return;
+                turn.Generation.ObserveItem(Data.Text(Data.Get(p, "item"), "type"), Data.Num(p, "started_at_ms"), Data.Num(p, "completed_at_ms"), Data.Time(Data.Get(record, "timestamp")));
+                updatedAt = Data.Get(record, "timestamp") ?? updatedAt; return;
             }
             if (type == "response_timing" && Data.Text(p, "response_id") != null) {
                 var a = Data.Time(Data.Get(p, "started_at_ms"), "milliseconds"); var b = Data.Time(Data.Get(p, "completed_at_ms"), "milliseconds");
@@ -261,13 +314,16 @@ namespace CodexTokenStatusbar {
             object next = Normalize(isModern ? Data.Get(p, "thread_token_usage") : Data.Get(Data.Get(p, "info"), "total_token_usage"));
             object responseUsage = Normalize(isModern ? Data.Get(p, "usage") : Data.Get(Data.Get(p, "info"), "last_token_usage"));
             if (legacy && modern) { Increment(next != null && UsageKey(next) == UsageKey(total) ? "duplicateUsageEvents" : "ignoredLegacyUsageEvents"); return; }
-            if (isModern && next != null) modern = true;
+            if (isModern && next != null) { if (!modern) foreach (var turn in turns.Values) turn.GenerationBaselineOutput = null; modern = true; }
             object previous = total;
+            if (next != null && previous != null && Data.Num(next, "output_tokens").HasValue && Data.Num(previous, "output_tokens").HasValue && Data.Num(next, "output_tokens") < Data.Num(previous, "output_tokens")) foreach (var turn in turns.Values) turn.Generation.Invalidate();
             if (next != null) { total = next; if (UsageKey(next) != UsageKey(previous)) totalUpdatedAt = Data.Get(record, "timestamp"); }
             string turnId = Data.Text(p, "turn_id") ?? currentId; var ownTurn = GetTurn(turnId); string previousTurn = ownTurn == null ? null : UsageKey(TurnUsage(ownTurn));
-            if (!string.IsNullOrEmpty(turnId) && currentId == null && ownTurn.Status != "completed") currentId = turnId;
+            if (!string.IsNullOrEmpty(turnId) && currentId == null && ownTurn.Status == "running") currentId = turnId;
             if (ownTurn != null) {
                 ownTurn.Delta = Subtract(total, ownTurn.Baseline); object official = isModern ? Normalize(Data.Get(p, "turn_token_usage")) : null;
+                if (!ownTurn.GenerationBaselineOutput.HasValue && Data.Num(next, "output_tokens").HasValue) ownTurn.GenerationBaselineOutput = Data.Num(next, "output_tokens");
+                if (official != null && next != null && UsageKey(official) != UsageKey(next)) ownTurn.GenerationOfficialOutput = Math.Max(ownTurn.GenerationOfficialOutput, Data.Num(official, "output_tokens") ?? 0);
                 if (!isModern && UsageKey(next) != UsageKey(previous)) ownTurn.Official = null;
                 if (official != null && !(UsageKey(official) == UsageKey(next) && Data.Num(ownTurn.Baseline, "total_tokens") > 0)) ownTurn.Official = official;
             }
@@ -284,13 +340,19 @@ namespace CodexTokenStatusbar {
                 }
             }
             if (ownTurn != null && UsageKey(TurnUsage(ownTurn)) != previousTurn) ownTurn.UsageUpdated = Data.Time(Data.Get(record, "timestamp"));
+            if (ownTurn != null) {
+                long responseOutput = ownTurn.Responses.Values.Sum(r => Data.Num(Data.Get(r, "usage"), "output_tokens") ?? 0);
+                long delta = Data.Num(total, "output_tokens").HasValue && ownTurn.GenerationBaselineOutput.HasValue ? Math.Max(0, Data.Num(total, "output_tokens").Value - ownTurn.GenerationBaselineOutput.Value) : 0;
+                long exact = Math.Max(responseOutput, delta);
+                ownTurn.Generation.Update(exact > 0 ? exact : ownTurn.GenerationOfficialOutput, Data.Time(Data.Get(record, "timestamp")));
+            }
             if (next != null || responseUsage != null) updatedAt = Data.Get(record, "timestamp") ?? updatedAt;
         }
         private static double? CacheRate(object usage) { var input = Data.Num(usage, "input_tokens"); var cached = Data.Num(usage, "cached_input_tokens"); return input > 0 && cached.HasValue ? cached.Value / (double)input.Value * 100 : (double?)null; }
         private object PublicTurn(string id) {
             Turn turn; if (id == null || !turns.TryGetValue(id, out turn)) return null; object usage = TurnUsage(turn);
             return Data.Obj("id", turn.Id, "usage", usage, "cacheHitRate", CacheRate(usage), "responseCount", turn.Responses.Count, "status", turn.Status, "startedAtMs", turn.Started, "completedAtMs", turn.Completed, "durationMs", turn.Duration,
-                "timeToFirstTokenMs", turn.FirstToken, "usageUpdatedAtMs", turn.UsageUpdated, "coverage", turn.Official != null || turn.Delta != null ? "complete" : "observed-responses-only");
+                "timeToFirstTokenMs", turn.FirstToken, "usageUpdatedAtMs", turn.UsageUpdated, "coverage", turn.Official != null || turn.Delta != null ? "complete" : "observed-responses-only", "generationSpeed", turn.Generation.Snapshot(turn.Status));
         }
         internal object Snapshot() {
             object current = PublicTurn(currentId), last = PublicTurn(lastId), speed = null, timing;

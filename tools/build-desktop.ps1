@@ -59,6 +59,7 @@ try {
     }
     $iconLicense = Join-Path $projectRoot 'desktop/licenses/lucide-0.468.0-LICENSE'
     [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($archive, $iconLicense, 'licenses/lucide-LICENSE', [System.IO.Compression.CompressionLevel]::Optimal) | Out-Null
+    [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($archive, (Join-Path $projectRoot 'desktop/licenses/codex-statusbar-MIT'), 'licenses/codex-statusbar-MIT', [System.IO.Compression.CompressionLevel]::Optimal) | Out-Null
 } finally { $archive.Dispose() }
 $payloadHash = (Get-FileHash -LiteralPath $payloadFile -Algorithm SHA256).Hash.ToLowerInvariant()
 $infoFile = Join-Path $desktopBuild 'BuildInfo.cs'
@@ -94,7 +95,7 @@ $result = [ordered]@{
     minimumNodeMajor = 24
     nodeVersion = if ($BundleNode) { $nodeVersion } else { $null }
     nodeSha256 = if ($BundleNode) { (Get-FileHash -LiteralPath $NodePath -Algorithm SHA256).Hash.ToLowerInvariant() } else { $null }
-    payloadEntries = $payloadFiles.Count + $(if ($BundleNode) { 3 } else { 1 }) + $(if ($NativeExperiment) { 2 } else { 0 })
+    payloadEntries = $payloadFiles.Count + $(if ($BundleNode) { 4 } else { 2 }) + $(if ($NativeExperiment) { 2 } else { 0 })
     backend = if ($NativeExperiment) { 'native-pipe' } else { 'cdp' }
     experimental = $NativeExperiment.IsPresent
     modifiesClientPackage = $false

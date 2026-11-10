@@ -1,4 +1,5 @@
 import { createCostAccumulator } from './cost-accumulator.mjs';
+import { createGenerationRate } from './generation-rate.mjs';
 const USAGE_FIELDS = [
   'input_tokens', 'cached_input_tokens', 'cache_write_input_tokens',
   'output_tokens', 'reasoning_output_tokens', 'total_tokens',
@@ -68,6 +69,7 @@ function publicTurn(turn) {
     timeToFirstTokenMs: turn.timeToFirstTokenMs,
     usageUpdatedAtMs: turn.usageUpdatedAtMs,
     coverage: turn.officialUsage || turn.deltaUsage ? 'complete' : 'observed-responses-only',
+    generationSpeed: turn.generation.snapshot(turn.status),
   };
 }
 
@@ -107,6 +109,8 @@ export function createMetricsAccumulator({ threadId = null } = {}) {
       id, baseline: null, responses: new Map(), officialUsage: null, deltaUsage: null,
       status: 'running', startedAtMs: null, completedAtMs: null, durationMs: null, timeToFirstTokenMs: null,
       usageUpdatedAtMs: null,
+      generation: createGenerationRate(id),
+      generationBaselineOutput: null, generationOfficialOutput: 0,
     });
     return turns.get(id);
   }
@@ -133,21 +137,33 @@ export function createMetricsAccumulator({ threadId = null } = {}) {
       if (turn.startedAtMs == null) {
         turn.startedAtMs = toTime(p.started_at, 'seconds') ?? toTime(record.timestamp);
         turn.baseline = clone(total ?? (sawSessionMeta ? emptyUsage() : null));
+        turn.generationBaselineOutput = validNumber(total?.output_tokens) ? total.output_tokens : null;
+        turn.generation.begin();
       }
       updatedAt = record.timestamp ?? updatedAt;
       return;
     }
-    if (record.type === 'event_msg' && p.type === 'task_complete') {
+    if (record.type === 'event_msg' && ['task_complete', 'turn_aborted'].includes(p.type)) {
       const id = p.turn_id ?? p.root_turn_id ?? currentTurnId;
       const turn = getTurn(id);
       if (!turn) return;
-      turn.status = 'completed';
+      turn.status = p.type === 'turn_aborted' ? 'aborted' : 'completed';
       turn.completedAtMs = toTime(p.completed_at, 'seconds') ?? toTime(record.timestamp);
       turn.startedAtMs ??= toTime(p.started_at, 'seconds');
       turn.durationMs = validNumber(p.duration_ms) ? p.duration_ms : null;
       turn.timeToFirstTokenMs = validNumber(p.time_to_first_token_ms) ? p.time_to_first_token_ms : null;
+      turn.generation.refresh(toTime(record.timestamp));
       lastTurnId = id;
       if (currentTurnId === id) currentTurnId = null;
+      updatedAt = record.timestamp ?? updatedAt;
+      return;
+    }
+
+    if (record.type === 'event_msg' && p.type === 'item_completed') {
+      const id = p.turn_id ?? currentTurnId;
+      const turn = getTurn(id);
+      if (!turn) return;
+      turn.generation.observeItem(p.item?.type, p.started_at_ms, p.completed_at_ms, toTime(record.timestamp));
       updatedAt = record.timestamp ?? updatedAt;
       return;
     }
@@ -173,8 +189,16 @@ export function createMetricsAccumulator({ threadId = null } = {}) {
       else diagnostics.ignoredLegacyUsageEvents++;
       return;
     }
-    if (isModern && nextTotal) hasModernUsage = true;
+    if (isModern && nextTotal) {
+      // 切换用量载体时重新确认测速基线，旧载体的滞后累计不能制造输出突增。
+      if (!hasModernUsage) for (const item of turns.values()) item.generationBaselineOutput = null;
+      hasModernUsage = true;
+    }
     const previousTotal = total;
+    if (nextTotal && previousTotal && ['output_tokens'].some(key =>
+      validNumber(nextTotal[key]) && validNumber(previousTotal[key]) && nextTotal[key] < previousTotal[key])) {
+      for (const item of turns.values()) item.generation.invalidate();
+    }
     if (nextTotal) {
       total = nextTotal;
       // 轮次开始、结束和重复通知不能把旧累计伪装成新用量。
@@ -183,10 +207,15 @@ export function createMetricsAccumulator({ threadId = null } = {}) {
     const id = p.turn_id ?? currentTurnId;
     const turn = getTurn(id);
     const previousTurnUsage = turn ? usageKey(turnUsage(turn)) : null;
-    if (id && currentTurnId == null && turn?.status !== 'completed') currentTurnId = id;
+    if (id && currentTurnId == null && turn?.status === 'running') currentTurnId = id;
     if (turn) {
       turn.deltaUsage = subtractUsage(total, turn.baseline);
       const officialTurn = isModern ? normalizeUsage(p.turn_token_usage) : null;
+      // 测速单独保存真实输出基线；首次读入的历史累计不能当成本轮输出。
+      if (turn.generationBaselineOutput == null && validNumber(nextTotal?.output_tokens)) turn.generationBaselineOutput = nextTotal.output_tokens;
+      if (officialTurn && nextTotal && usageKey(officialTurn) !== usageKey(nextTotal)) {
+        turn.generationOfficialOutput = Math.max(turn.generationOfficialOutput, officialTurn.output_tokens ?? 0);
+      }
       if (!isModern && usageKey(nextTotal) !== usageKey(previousTotal)) turn.officialUsage = null;
       // 部分旧版本把 thread 累计复制到 turn；有基线时以实际差值核验该情形。
       if (officialTurn) {
@@ -215,6 +244,13 @@ export function createMetricsAccumulator({ threadId = null } = {}) {
     }
     // 同一计数的重复通知不推进采样时间；新计数没有有效时间时清除旧时间，避免错配。
     if (turn && usageKey(turnUsage(turn)) !== previousTurnUsage) turn.usageUpdatedAtMs = toTime(record.timestamp);
+    if (turn) {
+      // 与参考项目一致：响应去重总量和累计差值取较大值，轮次载体只作后备。
+      const responseOutput = [...turn.responses.values()].reduce((sum, response) => sum + (response.usage.output_tokens ?? 0), 0);
+      const outputDelta = validNumber(total?.output_tokens) && turn.generationBaselineOutput != null ? Math.max(0, total.output_tokens - turn.generationBaselineOutput) : 0;
+      const exactOutput = Math.max(responseOutput, outputDelta);
+      turn.generation.update(exactOutput > 0 ? exactOutput : turn.generationOfficialOutput, toTime(record.timestamp));
+    }
     if (nextTotal || responseUsage) updatedAt = record.timestamp ?? updatedAt;
     if (!nextTotal && !responseUsage) total = previousTotal;
   }

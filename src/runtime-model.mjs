@@ -18,9 +18,9 @@ function mergeSnapshots(live, offline, nowMs) {
   const countViews = views.filter(view => view.value.total)
     .sort((a, b) => countAt(b) - countAt(a) || (a.source === 'log' ? -1 : 1));
   const counts = countViews[0]?.value;
-  const reset = countViews.length > 1 && ['input_tokens', 'output_tokens'].some(field =>
+  const reset = countViews.length > 1 && ['output_tokens'].some(field =>
     Number.isSafeInteger(counts.total[field]) && Number.isSafeInteger(countViews[1].value.total[field]) && counts.total[field] < countViews[1].value.total[field]);
-  // 累计值可以领先速度采样；计数重置时不继续使用重置前的轮次证据。
+  // 输入压缩不影响输出测速；只有输出累计重置才使旧轮次证据失效。
   const turnViews = reset ? countViews.slice(0, 1) : views;
   const entries = turnViews.flatMap(view => ['currentTurn', 'lastTurn'].flatMap(key => view.value[key]?.id ? [{
     ...view, turn: view.value[key], completed: key === 'lastTurn' || view.value[key].status === 'completed',
@@ -35,7 +35,7 @@ function mergeSnapshots(live, offline, nowMs) {
   function choose(id) {
     const candidates = entries.filter(entry => entry.turn.id === id);
     const completed = candidates.filter(entry => entry.completed);
-    const final = completed.filter(entry => estimateTurnRate({ lastTurn: entry.turn }, nowMs));
+    const final = completed.filter(entry => entry.turn.generationSpeed?.value > 0 || estimateTurnRate({ lastTurn: entry.turn }, nowMs));
     if (final.length) return { entry: final.find(entry => entry.source === 'log') ?? final[0], completed: true };
     const sampled = candidates.filter(entry => estimateTurnRate({ currentTurn: entry.turn }, nowMs))
       .sort((a, b) => at(b.turn.usageUpdatedAtMs) - at(a.turn.usageUpdatedAtMs));
@@ -58,6 +58,14 @@ function mergeSnapshots(live, offline, nowMs) {
   combined.cacheHitRate = cacheHitRate(combined.total);
   combined.currentTurn = head && !head.completed ? head.entry.turn : null;
   combined.lastTurn = last ?? null;
+  // 输出窗口与计数来自同一来源；实时总量领先时，不把它拼到旧的输出窗口上。
+  const measured = entries.filter(entry => entry.turn.id === head?.entry.turn.id && entry.turn.generationSpeed?.value > 0)
+    .sort((a, b) => at(b.turn.generationSpeed.sampledAtMs) - at(a.turn.generationSpeed.sampledAtMs) || (a.source === 'log' ? -1 : 1));
+  combined.generationSpeed = measured.length ? {
+    ...measured[0].turn.generationSpeed,
+    status: head.completed ? 'completed' : 'sampled',
+    held: !head.completed && measured[0].turn.generationSpeed.held === true,
+  } : null;
   combined.endToEndSpeed = last?.usage?.output_tokens != null && last.durationMs > 0 ? {
     value: last.usage.output_tokens / (last.durationMs / 1000), unit: 't/s',
     basis: 'whole-turn-including-waiting-and-tools', source: 'task_complete.duration_ms', estimated: false, live: false,
@@ -103,6 +111,12 @@ export function createRuntimeModel({ now = Date.now, maxThreads = 32 } = {}) {
       state.accumulator.consume({ type: 'event_msg', timestamp, payload: { type: 'task_started', thread_id: p.threadId, turn_id: p.turn.id, started_at: timestamp } });
     } else if (message.method === 'turn/completed' && typeof p.turn?.id === 'string') {
       state.accumulator.consume({ type: 'event_msg', timestamp, payload: { type: 'task_complete', thread_id: p.threadId, turn_id: p.turn.id, completed_at: timestamp } });
+    } else if (message.method === 'item/completed' && typeof p.turnId === 'string') {
+      // 仅接受事件自带的毫秒计时，不用消息到达时间猜测模型输出窗口。
+      state.accumulator.consume({ type: 'event_msg', timestamp, payload: {
+        type: 'item_completed', thread_id: p.threadId, turn_id: p.turnId, item: { type: p.item?.type },
+        started_at_ms: p.startedAtMs ?? p.started_at_ms, completed_at_ms: p.completedAtMs ?? p.completed_at_ms,
+      } });
     } else if (message.method === 'item/agentMessage/delta' && typeof p.delta === 'string') {
       state.visibleDeltaEvents++;
       state.visibleCharacters += p.delta.length;
@@ -131,17 +145,17 @@ export function createRuntimeModel({ now = Date.now, maxThreads = 32 } = {}) {
       lastTurn: observedCost.lastTurn?.turnId === combined.lastTurn?.id ? reconcileCostSummary(observedCost.lastTurn, combined.lastTurn?.usage) : null,
     } : null;
     const turnRate = estimateTurnRate(combined, nowMs);
-    const ratePending = combined.currentTurn != null && !turnRate;
+    const speed = combined.generationSpeed;
+    if (speed) speed.sampleAgeMs = Number.isFinite(speed.sampledAtMs) ? Math.max(0, nowMs - speed.sampledAtMs) : null;
+    const ratePending = combined.currentTurn != null && !speed;
     return {
       ...combined, identity: { ...active }, threadId: active.threadId, hostId: active.hostId,
-      scopeKey: 'scope.current', noteKey: turnRate ? turnRate.status === 'sampled' ? 'note.sampled' : 'note.completed'
+      scopeKey: 'scope.current', noteKey: speed ? speed.held ? 'note.generationHeld' : 'note.generation'
         : ratePending ? 'note.waitingSample' : live.total || offline?.total ? 'note.usageWaitingTiming' : 'note.waitingUsage',
-      scopeLabel: 'Current conversation', speed: null, turnRate, ratePending,
-      scopeNote: turnRate
-        ? turnRate.status === 'sampled'
-          ? 'Sample avg is estimated: official turn output tokens (including reasoning) divided by turn time up to the same usage sample, including waiting and tools. The value holds until usage changes; sample age is shown below. Completion uses the final turn duration. Generation speed is unverified.'
-          : 'Turn avg is estimated: official turn output tokens (including reasoning) divided by the final turn duration, including waiting and tools. This completed average does not change with the clock. Generation speed is unverified.'
-        : ratePending ? 'Waiting for a complete usage sample and matching timing for this turn. Compaction or the first response can delay this sample.'
+      scopeLabel: 'Current conversation', speed, turnRate, ratePending,
+      scopeNote: speed
+        ? 'Estimated generation speed: official output tokens including reasoning / union of Reasoning and AgentMessage windows, smoothed with alpha 0.35. Waiting and tool execution are excluded. The last measurement is held until a new sample arrives.'
+        : ratePending ? 'Waiting for official output tokens and complete model-output timing for this turn.'
         : live.total || offline?.total
         ? 'Usage follows the verified conversation identity. Generation speed is awaiting verified token timing. Runtime-only turn totals may cover observed responses only.'
         : 'Conversation identified. Waiting for an official usage update or a matching local rollout.',

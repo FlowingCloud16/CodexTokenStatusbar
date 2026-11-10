@@ -1,8 +1,8 @@
 {
-  "version": "0.6.1",
-  "buildId": "09eb043780c7489c9f7f361655bce5a48a9d62d20eae6600e15ed20cb4924f31",
+  "version": "0.6.2",
+  "buildId": "0a9fd930bf7466f9134bd5a59f99633370068cf1801cb6f698d556da6a2152b4",
   "clientAppVersion": "26.1103.32239",
   "clientAsarSha256": "fb47d6491dc3006b708cb1e14de479b882bf50f88b7daa81818f154c253266aa",
   "entry": "/assets/348410.792d1c9584.js",
-  "bundleSha256": "4c69d589e47cff9e91bd97d47a6e1d9f98303476d99e4c5f0f7e7cd4a866d3be"
+  "bundleSha256": "05a768c2c04437ab21d51d7c578ae6330ad8fd44998163d2250e0e3ea0049c2f"
 }

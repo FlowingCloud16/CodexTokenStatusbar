@@ -71,12 +71,13 @@ internal static class LauncherTests {
                 Assert((archive.GetEntry("runtime/node.exe") != null) == bundled, "资源中的 Node 与构建类型不符");
                 Assert((archive.GetEntry("runtime/LICENSE") != null) == bundled, "随附 Node 许可证与构建类型不符");
                 Assert(archive.GetEntry("licenses/lucide-LICENSE") != null, "缺少图标许可证");
+                Assert(archive.GetEntry("licenses/codex-statusbar-MIT") != null, "缺少生成速度参考项目许可证");
                 bool portable = app.GetType("CodexTokenStatusbar.NativeBackend") != null;
                 Assert(archive.GetEntry("dist/statusbar.bundle.js") != null && archive.GetEntry("src/api-prices.json") != null
                     && archive.GetEntry(portable ? "native/main-bridge.cjs" : "tools/statusbar-manager.mjs") != null, "缺少核心功能资源");
                 if (portable) {
                     Assert(app.GetType("CodexTokenStatusbar.Program").GetMethod("RunNode", Static) == null && app.GetType("CodexTokenStatusbar.Program").GetMethod("ResolveNodeAsync", Static) == null, "免安装版仍包含外部 Node 调用入口");
-                    Assert(archive.Entries.Count == 7 && archive.GetEntry("native/bin/native-probe.exe") != null && archive.GetEntry("native/bin/statusbar-probe.dll") != null, "原生组件缺失或混入多余资源");
+                    Assert(archive.Entries.Count == 8 && archive.GetEntry("native/bin/native-probe.exe") != null && archive.GetEntry("native/bin/statusbar-probe.dll") != null, "原生组件缺失或混入多余资源");
                     Assert(archive.Entries.All(entry => !entry.FullName.StartsWith("tools/") && !entry.FullName.EndsWith("node.exe")), "免安装版仍携带 Node 后台");
                 }
                 Assert(archive.Entries.All(entry => !entry.FullName.EndsWith(".map") && !entry.FullName.Contains("node_modules/") && !entry.FullName.StartsWith("reports/") && !entry.FullName.StartsWith("tests/")), "资源混入开发产物");

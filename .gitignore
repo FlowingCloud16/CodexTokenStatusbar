@@ -8,7 +8,7 @@ dist/*.map
 
 # 只提交当前已验收的成品，供发布流程上传到 GitHub Releases
 release/*
-!release/CodexTokenStatusbar-0.6.1.exe
+!release/CodexTokenStatusbar-0.6.2.exe
 
 # 本机诊断、会话标识与临时文件
 reports/

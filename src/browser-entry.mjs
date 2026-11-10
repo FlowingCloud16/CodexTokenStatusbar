@@ -26,7 +26,7 @@ import { VERSION, BUILD_ID } from './version.mjs';
     const snapshot = model.snapshot();
     if (bridge.inspect().connected) return snapshot;
     return {
-      ...snapshot, bridgeDisconnected: true, total: null, cost: null, cacheHitRate: null, speed: null, turnRate: null, ratePending: false, currentTurn: null, lastTurn: null, endToEndSpeed: null,
+      ...snapshot, bridgeDisconnected: true, total: null, cost: null, cacheHitRate: null, speed: null, generationSpeed: null, turnRate: null, ratePending: false, currentTurn: null, lastTurn: null, endToEndSpeed: null,
       scopeLabel: 'Reconnecting to local bridge',
       scopeKey: 'scope.reconnecting', noteKey: 'note.bridgeDisconnected',
       scopeNote: 'The local bridge is disconnected. Usage is paused until the verified connection recovers.',

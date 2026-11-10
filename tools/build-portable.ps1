@@ -24,6 +24,7 @@ try {
         'native/bin/native-probe.exe' = '.native-build/probe/native-probe.exe'
         'native/bin/statusbar-probe.dll' = '.native-build/probe/statusbar-probe.dll'
         'licenses/lucide-LICENSE' = 'desktop/licenses/lucide-0.468.0-LICENSE'
+        'licenses/codex-statusbar-MIT' = 'desktop/licenses/codex-statusbar-MIT'
     }
     $archive = [IO.Compression.ZipFile]::Open($payloadFile, [IO.Compression.ZipArchiveMode]::Create)
     try { foreach ($entry in $entries.GetEnumerator()) { [IO.Compression.ZipFileExtensions]::CreateEntryFromFile($archive, (Join-Path $projectRoot $entry.Value), $entry.Key, [IO.Compression.CompressionLevel]::Optimal) | Out-Null } }

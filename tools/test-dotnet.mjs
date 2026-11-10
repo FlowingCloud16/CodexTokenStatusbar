@@ -13,7 +13,7 @@ const corpus = path.join(output, 'dotnet-fixtures.json');
 const suite = path.join(output, 'dotnet-fixtures.mjs');
 const casesPath = path.join(output, 'dotnet-cases.json');
 const actualPath = path.join(output, 'dotnet-actual.json');
-const suites = ['metrics', 'api-cost', 'rollout-reader', 'runtime-model', 'runtime-rate-merge', 'turn-rate'];
+const suites = ['metrics', 'api-cost', 'rollout-reader', 'runtime-model', 'runtime-rate-merge', 'turn-rate', 'generation-rate'];
 const contents = `import fs from 'node:fs';import crypto from 'node:crypto';
 globalThis.__dotnetCases=new Map();
 globalThis.__dotnetSave=(value)=>{const key=crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex');globalThis.__dotnetCases.set(key,value);};

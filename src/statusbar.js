@@ -7,8 +7,13 @@
   const messages = {
     en: {
       speed: 'Speed ', sampled: 'Sample avg ', completed: 'Turn avg ', tokens: 'Tokens ', cache: 'Cache ', bridge: 'Bridge ', reconnecting: 'Reconnecting…',
-      waitingSample: 'Waiting…', waitingSampleTitle: 'Waiting for a complete usage sample and matching timing for this turn. Compaction or the first response can delay this sample.',
-      'note.waitingSample': 'Waiting for a complete usage sample and matching timing for this turn. Compaction or the first response can delay this sample.',
+      waitingSample: 'Waiting…', waitingSampleTitle: 'Waiting for official output tokens and complete model-output timing for this turn.',
+      'note.waitingSample': 'Waiting for official output tokens and complete model-output timing for this turn.',
+      modelOutputTime: 'Model output time',
+      generationTitle: 'Estimated generation speed: output tokens including reasoning / merged model-output time. Waiting and tool time are excluded; samples are smoothed.',
+      heldTitle: ' Holding the last measurement until the next sample.',
+      'note.generation': 'Official output tokens divided by merged Reasoning and AgentMessage time, with smoothing. Waiting and tool execution are excluded.',
+      'note.generationHeld': 'Holding the last measured generation speed during tool execution or while waiting for the next sample.',
       statistics: 'Token statistics', usageDetails: 'Token usage details',
       settingsTab: 'Settings', layoutLabel: 'Status bar layout',
       layoutAdaptive: 'Model-first adaptive', layoutSeparate: 'Separate statistics row', layoutIcon: 'Single icon',
@@ -42,8 +47,13 @@
     },
     zh: {
       speed: '速度 ', sampled: '采样均速 ', completed: '整轮均速 ', tokens: '用量 ', cache: '缓存 ', bridge: '连接 ', reconnecting: '正在重连…',
-      waitingSample: '等待采样', waitingSampleTitle: '正在等待本轮完整用量及匹配的采样时间，压缩对话或首次响应可能使采样延后。',
-      'note.waitingSample': '正在等待本轮完整用量及匹配的采样时间，压缩对话或首次响应可能使采样延后。',
+      waitingSample: '等待采样', waitingSampleTitle: '正在等待本轮官方输出计数和完整的模型输出计时。',
+      'note.waitingSample': '正在等待本轮官方输出计数和完整的模型输出计时。',
+      modelOutputTime: '模型输出耗时',
+      generationTitle: '估算生成速度：官方输出 token（含推理）除以合并后的模型输出时间，排除等待和工具耗时，并平滑采样结果。',
+      heldTitle: '正在保留上次测量值，等待新采样。',
+      'note.generation': '官方输出 token 除以推理与回复的合并输出时间，并平滑结果；排除等待和工具耗时。',
+      'note.generationHeld': '工具运行或等待新采样期间，保留上次测得的生成速度。',
       statistics: 'Token 统计', usageDetails: 'Token 用量详情',
       settingsTab: '设置', layoutLabel: '状态栏布局',
       layoutAdaptive: '模型优先自适应', layoutSeparate: '统计独立一行', layoutIcon: '单图标入口',
@@ -460,18 +470,17 @@
   function render() {
     const speed = snapshot.speed;
     const turnRate = snapshot.turnRate;
-    const displayedRate = speed ?? turnRate;
+    const displayedRate = speed;
     const ratePending = snapshot.ratePending === true && displayedRate?.value == null;
-    const sampled = turnRate?.status === 'sampled';
-    const sampleAge = Number.isFinite(turnRate?.sampleAgeMs) ? text('ago', { value: (turnRate.sampleAgeMs / 1000).toFixed(1) }) : '--';
+    const sampleAge = Number.isFinite(speed?.sampleAgeMs) ? text('ago', { value: (speed.sampleAgeMs / 1000).toFixed(1) }) : '--';
     if (host.lang !== language) host.lang = language;
     panel.setAttribute('aria-label', text('usageDetails'));
     shadow.querySelector('[data-heading="scope"]').textContent = snapshot.scopeKey ? text(snapshot.scopeKey) : snapshot.scopeLabel ?? text('scope.current');
     shadow.querySelector('[data-label="tokens"]').textContent = text('tokens');
     shadow.querySelector('[data-label="cache"]').textContent = text('cache');
-    shadow.querySelector('[data-label="speed"]').textContent = text(speed?.value != null || turnRate?.value == null ? 'speed' : sampled ? 'sampled' : 'completed');
+    shadow.querySelector('[data-label="speed"]').textContent = text('speed');
     shadow.querySelector('[data-value="speed"]').textContent = displayedRate?.value != null ? `${displayedRate.value.toFixed(1)} t/s` : ratePending ? text('waitingSample') : '--';
-    button.title = !speed && turnRate ? text(sampled ? 'sampledTitle' : 'completedTitle', { age: sampleAge }) : ratePending ? text('waitingSampleTitle') : text('statistics');
+    button.title = speed?.value != null ? text('generationTitle') + (speed.held ? text('heldTitle') : '') : ratePending ? text('waitingSampleTitle') : text('statistics');
     if (snapshot.bridgeDisconnected) {
       shadow.querySelector('[data-label="speed"]').textContent = text('bridge');
       shadow.querySelector('[data-value="speed"]').textContent = text('reconnecting');
@@ -480,8 +489,8 @@
     shadow.querySelector('[data-value="total"]').textContent = compact(snapshot.total?.total_tokens);
     shadow.querySelector('[data-value="cache"]').textContent = Number.isFinite(snapshot.cacheHitRate) ? `${snapshot.cacheHitRate.toFixed(1)}%` : '--';
     button.setAttribute('aria-label', text('accessible', {
-      rate: text(displayedRate?.estimated ? sampled ? 'rateSampled' : 'rateCompleted' : 'rateGeneration'),
-      value: shadow.querySelector('[data-value="speed"]').textContent, updated: sampled ? text('updated', { age: sampleAge }) : '',
+      rate: text('rateGeneration'),
+      value: shadow.querySelector('[data-value="speed"]').textContent, updated: Number.isFinite(speed?.sampleAgeMs) ? text('updated', { age: sampleAge }) : '',
       total: number(snapshot.total?.total_tokens), cache: shadow.querySelector('[data-value="cache"]').textContent,
     }));
     renderCost();
@@ -499,12 +508,12 @@
     ]);
     detail('[data-detail="speed"]', [
       [text('generationSpeed'), speed?.value != null ? `${speed.value.toFixed(1)} t/s` : '--'],
-      [text(sampled || ratePending ? 'sampledAverage' : 'completedAverage'), turnRate?.value != null ? `≈ ${turnRate.value.toFixed(1)} t/s` : ratePending ? text('waitingSample') : '--'],
-      ...(sampled ? [[text('sampleAge'), sampleAge]] : []),
+      [text('modelOutputTime'), Number.isFinite(speed?.durationMs) ? text('seconds', { value: (speed.durationMs / 1000).toFixed(2) }) : '--'],
+      ...(Number.isFinite(speed?.sampleAgeMs) ? [[text('sampleAge'), sampleAge]] : []),
       [text('lastThroughput'), snapshot.endToEndSpeed?.value != null ? `${snapshot.endToEndSpeed.value.toFixed(1)} t/s` : '--'],
     ]);
-    const fallbackNoteKey = turnRate && !speed ? sampled ? 'note.sampled' : 'note.completed'
-      : snapshot.speed?.estimated ? 'note.estimatedSpeed' : 'note.default';
+    const fallbackNoteKey = speed ? speed.held ? 'note.generationHeld' : 'note.generation'
+      : ratePending ? 'note.waitingSample' : 'note.usageWaitingTiming';
     shadow.querySelector('[data-detail="note"]').textContent = snapshot.noteKey ? text(snapshot.noteKey, snapshot.noteParams)
       : snapshot.scopeNote ?? text(fallbackNoteKey);
     syncLayout();
@@ -689,7 +698,7 @@
   });
   observer.observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'style', 'hidden', 'inert', 'aria-hidden', 'data-state', 'data-active', 'data-theme', 'lang'] });
   window[KEY] = {
-    version: '0.6.1',
+    version: '0.6.2',
     setSettings(value, acknowledgedRequest = null) {
       if (layoutRequest && acknowledgedRequest !== layoutRequest.id) return false;
       if (!['adaptive', 'separate', 'icon'].includes(value?.layout)) return false;
